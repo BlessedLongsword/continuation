@@ -13,7 +13,8 @@
 #define ITER 5
 
 /* Header Functions */
-void generate_curve(double x0, double y0, const int niub[], int num, double delta, double tol, double pre, int iter, FILE * fptr);
+void generate_curve(double x0, double y0, const int niub[], int num, double delta, double tol, double pre, int iter,
+                    int prints, FILE * fptr);
 double f(double x, double y, const int niub[]);
 double dx_f(double x, double y, const int niub[]);
 double dy_f(double x, double y, const int niub[]);
@@ -31,6 +32,7 @@ double compute_initial_points(const int niub[], const double distances[], double
 
 int main() {
     int i, j, counter = 0;
+    int prints;
     int  niub[8];
     double init_points[16][2];
     double distances[4] = {0.2, 0.1, -0.05, -0.15};
@@ -61,48 +63,90 @@ int main() {
     printf("Initial Points: [");
     for(i = 0; i < 15; i++) {
         printf("(%1.3f, %1.3f), ", init_points[i][0], init_points[i][1]);
-    } printf("(%1.3f, %1.3f)]\n", init_points[15][0], init_points[15][1]);
+    } printf("(%1.3f, %1.3f)]\n\n", init_points[15][0], init_points[15][1]);
 
     fptr = fopen("curves.txt", "w");
 
-    for(i = 0; i < 15; i++) {
-        generate_curve(init_points[i][0], init_points[i][1], niub, NUM, DELTA, TOL, PRE, ITER, fptr);
+    do {
+        printf("Do you want to print predictions and corrections? [0 = no, 1 = yes]\n");
+        scanf("%d", &prints);
+        if (prints < 0 || prints > 1) {
+            printf("Invalid input! ");
+        }
+    } while (prints < 0 || prints > 1);
+
+    for(i = 0; i < 16; i++) {
+        printf("\nGenerating curve #%d:\n", i+1);
+        generate_curve(init_points[i][0], init_points[i][1], niub, NUM, DELTA, TOL, PRE, ITER, prints, fptr);
+        printf("#Starting point reached, finished curve #%d.\n\n", i+1);
+        fprintf(fptr, "\n#Starting point reached, finished curve #%d.\n\n", i+1);
     }
+
+    fclose(fptr);
 
     return 0;
 }
 
 /* ----------------- Main Functions -----------------*/
-void generate_curve(double x0, double y0, const int niub[], int num, double delta, double tol, double pre, int iter, FILE * fptr) {
+void generate_curve(double x0, double y0, const int niub[], int num, double delta, double tol, double pre, int iter,
+                    int prints, FILE * fptr) {
     int iter_counter = 0;
-    double new_x = x0, new_y = y0;
+    double x_init = x0, y_init = y0;
+    double x_pred, y_pred;
     double tang_x, tang_y;
+
     do {
 
         /* Prediction */
+        tang_x = dy_h(x_init, y_init, niub);
+        tang_y = -dx_h(x_init, y_init, niub);
 
-        tang_x = dy_h(new_x, new_y, niub);
-        tang_y = -dx_h(new_x, new_y, niub);
-
-        if (dist(tang_x, tang_y, 0, 0) > tol) {
+        if (dist(tang_x, tang_y, 0, 0) < tol) {
             printf("\nThe gradient is too small! Stopping curve generation at iteration %d\n\n", iter_counter);
             break;
         } else {
-            new_x = new_x + delta * (tang_x / dist(tang_x, tang_y, 0, 0));
-            new_y = new_y + delta * (tang_y / dist(tang_x, tang_y, 0, 0));
+            x_pred = x_init + delta * (tang_x / dist(tang_x, tang_y, 0, 0));
+            y_pred = y_init + delta * (tang_y / dist(tang_x, tang_y, 0, 0));
         }
 
-        printf("Prediction: (%1.6f, %1.6f)", new_x, new_y);
+        if (prints) {
+            printf("Prediction: (%+.8le, %+.8le)\n", x_pred, y_pred);
+        }
 
         /* Correction */
+        double x_cor, y_cor;
+        double a, b, c, d;
+        double iteration_distance;
+        int counter_cor = 0;
+        do {
+            a = dx_h(x_pred, y_pred, niub);
+            b = dy_h(x_pred, y_pred, niub);
+            c = 2 * (x_pred - x_init);
+            d = 2 * (y_pred - y_init);
 
+            x_cor = x_pred - (1.0 / (a * d - b * c)) * (d * h(x_pred, y_pred, x0, y0, niub) -
+                                                b * ((x_pred - x_init) * (x_pred - x_init) + (y_pred - y_init) * (y_pred - y_init) - delta * delta));
+            y_cor = y_pred - (1.0 / (a * d - b * c)) * (a * ((x_pred - x_init) * (x_pred - x_init) + (y_pred - y_init) * (y_pred - y_init) - delta * delta) -
+                                                c * h(x_pred, y_pred, x0, y0, niub));
 
+            iteration_distance = dist(x_pred, y_pred, x_cor, y_cor);
+            if (prints) {
+                printf("Correction: (%+.8le, %+.8le) with distance %+.8le\n", x_cor, y_cor,
+                       dist(x_pred, y_pred, x_cor, y_cor));
+            }
+            x_pred = x_cor;
+            y_pred = y_cor;
+            counter_cor++;
+
+        } while (iteration_distance >= pre && counter_cor < iter);
+
+        fprintf(fptr, "%6d\t%+.8le\t%+.8le\n", iter_counter, x_pred, y_pred);
+
+        x_init = x_pred;
+        y_init = y_pred;
         iter_counter++;
 
-    } while (dist(new_x, new_y, x0, y0) > delta);
-}
-
-double correct () {
+    } while ((dist(x_pred, y_pred, x0, y0) >= delta  || iter_counter < 2) && iter_counter < num);
 
 }
 
@@ -114,7 +158,7 @@ double f(double x, double y, const int niub[]) {
     for (i = 0; i <= 7; i += 2) {
         prod *= dist(x, y, niub[i], niub[i+1]);
     }
-    return 0;
+    return prod;
 }
 
 double dx_f(double x, double y, const int niub[]) {
@@ -162,7 +206,7 @@ double dx_dist(double x, double y, double p, double q) {
 }
 
 double dy_dist(double x, double y, double p, double q) {
-    return (y - p) / dist(x, y, p, q);
+    return (y - q) / dist(x, y, p, q);
 }
 
 /* ----------------- Component Computation ------------------ */
@@ -202,5 +246,5 @@ double compute_initial_points(const int niub[], const double distances[], double
         exit(2);
     }
 
-    return niub[point + comp] + distances[dist_idx] * (niub[point + comp] - b[comp]);
+    return niub[2*point + comp] + distances[dist_idx] * (niub[2*point + comp] - b[comp]);
 }
